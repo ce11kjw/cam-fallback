@@ -1,7 +1,7 @@
 id=cam_fallback
 name=CamFallback 相机降级兼容
-version=v1.0.0
-versionCode=100
+version=v1.0.1
+versionCode=101
 author=aplm123
 description=MTK 设备摄像头硬件损坏时的降级兼容方案。当任一摄像头 sensor 探测失败时，MTK camera HAL 会空指针崩溃（createDeviceMap/getSensorId），导致全部摄像头不可用。本模块自动检测失败 sensor 并从 HAL 设备表中剔除，让剩余的完好摄像头正常工作。
 updateJson=https://raw.githubusercontent.com/ce11kjw/cam-fallback/main/update.json
