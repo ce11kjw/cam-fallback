@@ -1,11 +1,17 @@
 #!/system/bin/sh
-# CamFallback - 开机后守护 & WebUI
-# 注意：busybox httpd 在 APatch 的 busybox 里没编译 CGI，
-#      所以用 nc -lk -e 自建轻量 HTTP 服务（已实测可用）
+# CamFallback - 开机后守护 + 可选 WebUI（http 端口服务）
+#
+# 说明：
+#   KSU / APatch 管理器的「模块 WebUI」直接托管 webroot/index.html，
+#   页面通过 window.ksu.exec 执行命令取数据，**不需要任何端口**。
+#
+#   这里的 nc 服务只是给「用浏览器直接访问」留的入口（可选）。
+#   端口用高位 38946，避开常见的 8080/8089/9090 等冲突。
+
 MODDIR=${0%/*}
 LOG=/data/local/tmp/camfb.log
 WDIR=/data/local/tmp/camfb-web
-PORT=8089
+PORT=38946          # 高位端口，避免冲突
 
 log() { echo "[$(date '+%m-%d %H:%M:%S')] $*" >> "$LOG"; }
 
@@ -13,7 +19,7 @@ while [ "$(getprop sys.boot_completed)" != "1" ]; do sleep 2; done
 
 # ---- 找工具 ----
 RESETPROP=""
-for p in /data/adb/ap/bin/resetprop /data/adb/ksu/bin/resetprop /data/adb/magisk/resetprop; do
+for p in /data/adb/ap/bin/resetprop /data/adb/ksu/bin/resetprop /data/adb/magisk/resetprop /system/bin/resetprop; do
     [ -x "$p" ] && RESETPROP="$p" && break
 done
 BB=""
@@ -22,7 +28,7 @@ for b in /data/adb/ap/bin/busybox /data/adb/ksu/bin/busybox /data/adb/magisk/bus
 done
 [ -z "$BB" ] && BB=$(command -v busybox 2>/dev/null)
 
-log "=== service.sh 启动 (busybox=$BB resetprop=$RESETPROP) ==="
+log "=== service.sh 启动 (busybox=$BB resetprop=$RESETPROP port=$PORT) ==="
 
 reapply() {
     [ -n "$RESETPROP" ] && $RESETPROP ro.boot.camera.config 0 2>>"$LOG"
@@ -48,17 +54,14 @@ if [ "$SVC" = "restarting" ]; then
     log "修复后 svc=$(getprop init.svc.camerahalserver)"
 fi
 
-# ============ WebUI（nc 版）============
+# ============ 可选：浏览器用 HTTP 入口 ============
 mkdir -p "$WDIR"
 cp -f "$MODDIR/webroot/index.html" "$WDIR/index.html" 2>/dev/null
 
-# HTTP handler：读请求 → 按路径返回
 cat > "$WDIR/handler.sh" <<'EOH'
 #!/system/bin/sh
-# CamFallback HTTP handler
 read -r REQ
 read -r _H
-# 丢弃剩余 header
 while read -r H; do
   case "$H" in
     ""|"$(printf '\r')") break ;;
@@ -81,38 +84,13 @@ case "$URL" in
     MAP=$(getprop vendor.debug.camera.logicalcam.enable_map)
     CFG=$(getprop ro.boot.camera.config)
     SEL=$(getenforce)
-    MODEL=$(getprop ro.product.odm.marketname)
-    [ -z "$MODEL" ] && MODEL=$(getprop ro.product.model)
-    VER=$(grep '^version=' /data/adb/modules/cam_fallback/module.prop 2>/dev/null | cut -d= -f2)
-    BODY=$(printf '{"probe":"%s","hal":"%s","devices":%s,"crash":%s,"info":"%s","infoext":"%s","enable_map":"%s","camera_config":"%s","selinux":"%s","model":"%s","version":"%s"}' \
-      "$P" "$SVC" "$DEV" "$CRASH" "$INFO" "$EXT" "$MAP" "$CFG" "$SEL" "$MODEL" "$VER")
-    ;;
-  /cmd*)
-    DO=$(echo "$URL" | sed -n 's/.*do=\([a-z]*\).*/\1/p')
-    RP=""
-    for p in /data/adb/ap/bin/resetprop /data/adb/ksu/bin/resetprop /data/adb/magisk/resetprop; do
-        [ -x "$p" ] && RP="$p" && break
-    done
-    case "$DO" in
-      restart)
-        [ -n "$RP" ] && $RP ro.boot.camera.config 0
-        setprop vendor.debug.camera.logicalcam.enable_map 1
-        setprop ctl.restart camerahalserver
-        BODY='{"ok":true,"action":"restart"}'
-        ;;
-      opencam)
-        monkey -p com.android.camera -c android.intent.category.LAUNCHER 1 >/dev/null 2>&1
-        BODY='{"ok":true,"action":"opencam"}'
-        ;;
-      *)
-        BODY='{"ok":false,"msg":"unknown"}'
-        ;;
-    esac
+    BODY=$(printf '{"probe":"%s","hal":"%s","devices":%s,"crash":%s,"info":"%s","infoext":"%s","enable_map":"%s","camera_config":"%s","selinux":"%s"}' \
+      "$P" "$SVC" "$DEV" "$CRASH" "$INFO" "$EXT" "$MAP" "$CFG" "$SEL")
     ;;
   *)
     CT="text/html; charset=utf-8"
-    if [ -f /data/local/tmp/camfb-web/index.html ]; then
-      BODY=$(cat /data/local/tmp/camfb-web/index.html)
+    if [ -f "$WDIR/index.html" ]; then
+      BODY=$(cat "$WDIR/index.html")
     else
       BODY="<h1>CamFallback</h1><p>index.html missing</p>"
     fi
@@ -124,30 +102,27 @@ printf 'HTTP/1.1 200 OK\r\nContent-Type: %s\r\nContent-Length: %d\r\nCache-Contr
 EOH
 chmod 755 "$WDIR/handler.sh"
 
-# 停旧实例
+# 清理旧实例（含旧端口 8089 的残留）
 [ -f /data/local/tmp/camfb-web.pid ] && kill -9 "$(cat /data/local/tmp/camfb-web.pid)" 2>/dev/null
 if [ -n "$BB" ]; then
-    for p in $($BB ps -o pid,args 2>/dev/null | grep "nc -lk -p $PORT" | grep -v grep | awk '{print $1}'); do
+    for p in $($BB ps -o pid,args 2>/dev/null | grep -E "nc -lk -p (8089|$PORT)" | grep -v grep | awk '{print $1}'); do
         kill -9 "$p" 2>/dev/null
     done
 fi
 sleep 1
 
-# 启动 nc 服务器
 if [ -n "$BB" ] && [ -x "$BB" ]; then
     nohup $BB nc -lk -p $PORT -e "$WDIR/handler.sh" >/dev/null 2>&1 &
     echo $! > /data/local/tmp/camfb-web.pid
     sleep 1
     if $BB netstat -tln 2>/dev/null | grep -q ":$PORT "; then
-        log "WebUI 已启动: http://127.0.0.1:$PORT/"
+        log "HTTP 入口: http://127.0.0.1:$PORT/"
     else
-        log "!! WebUI 启动失败（端口 $PORT）"
+        log "!! HTTP 入口启动失败（端口 $PORT 被占？）"
     fi
-else
-    log "!! busybox 不可用，WebUI 未启动"
 fi
 
-# ---- 巡检：HAL 掉了就修 ----
+# ---- 巡检 ----
 n=0
 while true; do
     sleep 300
@@ -158,9 +133,8 @@ while true; do
         reapply
         setprop ctl.restart camerahalserver
     fi
-    # WebUI 挂了也拉起来
     if [ -n "$BB" ] && ! $BB netstat -tln 2>/dev/null | grep -q ":$PORT "; then
-        log "巡检#$n: WebUI 掉线 -> 重启"
+        log "巡检#$n: HTTP 入口掉线 -> 重启"
         nohup $BB nc -lk -p $PORT -e "$WDIR/handler.sh" >/dev/null 2>&1 &
         echo $! > /data/local/tmp/camfb-web.pid
     fi
