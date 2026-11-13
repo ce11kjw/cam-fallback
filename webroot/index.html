@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0a0e17">
+<title>CamFallback 相机降级兼容</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+:root{
+  --bg:#0a0e17; --card:#111827; --card2:#161f2e; --line:#1e293b;
+  --txt:#e6edf7; --dim:#7b8ca6; --ok:#22d3ee; --warn:#fbbf24; --err:#f43f5e; --lime:#a3e635;
+}
+body{
+  background:var(--bg); color:var(--txt);
+  font-family:-apple-system,"PingFang SC","Noto Sans CJK SC",system-ui,sans-serif;
+  padding:16px 14px calc(28px + env(safe-area-inset-bottom));
+  min-height:100vh; font-size:15px; line-height:1.5;
+}
+.wrap{max-width:520px;margin:0 auto}
+header{display:flex;align-items:center;gap:11px;margin-bottom:18px}
+.logo{
+  width:44px;height:44px;border-radius:13px;flex:0 0 44px;
+  background:linear-gradient(135deg,var(--ok),var(--lime));
+  display:flex;align-items:center;justify-content:center;
+  font-size:22px;box-shadow:0 4px 16px rgba(34,211,238,.28)
+}
+h1{font-size:19px;font-weight:650;letter-spacing:.3px}
+.sub{font-size:12px;color:var(--dim);margin-top:2px;font-weight:400}
+
+.card{
+  background:var(--card);border:1px solid var(--line);border-radius:15px;
+  padding:15px 16px;margin-bottom:12px
+}
+.card-title{
+  font-size:12px;color:var(--dim);font-weight:600;letter-spacing:1.2px;
+  text-transform:uppercase;margin-bottom:12px;display:flex;
+  align-items:center;justify-content:space-between
+}
+
+/* 大状态 */
+.hero{
+  background:linear-gradient(135deg,rgba(34,211,238,.10),rgba(163,230,53,.06));
+  border:1px solid rgba(34,211,238,.24);border-radius:17px;padding:19px 17px;
+  margin-bottom:13px;position:relative;overflow:hidden
+}
+.hero:before{
+  content:'';position:absolute;top:-40%;right:-16%;width:170px;height:170px;
+  background:radial-gradient(circle,rgba(34,211,238,.16),transparent 68%);border-radius:50%
+}
+.hero-row{display:flex;align-items:center;gap:14px;position:relative}
+.bigdev{
+  font-size:42px;font-weight:750;line-height:1;letter-spacing:-1.5px;
+  background:linear-gradient(135deg,var(--ok),var(--lime));
+  -webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text
+}
+.hero-lbl{font-size:12.5px;color:var(--dim);margin-top:3px}
+.verdict{
+  margin-left:auto;font-size:11.5px;font-weight:700;padding:6px 13px;
+  border-radius:20px;letter-spacing:.4px;white-space:nowrap
+}
+.v-ok{background:rgba(163,230,53,.15);color:var(--lime);border:1px solid rgba(163,230,53,.35)}
+.v-err{background:rgba(244,63,94,.15);color:var(--err);border:1px solid rgba(244,63,94,.35)}
+.v-warn{background:rgba(251,191,36,.15);color:var(--warn);border:1px solid rgba(251,191,36,.35)}
+
+/* sensor 列表 */
+.sensor{
+  display:flex;align-items:center;gap:11px;padding:10px 12px;
+  border-radius:11px;margin-bottom:7px;background:var(--card2);border:1px solid transparent
+}
+.sensor:last-child{margin-bottom:0}
+.sensor.dead{border-color:rgba(244,63,94,.24);background:rgba(244,63,94,.06)}
+.s-ico{
+  width:26px;height:26px;border-radius:8px;flex:0 0 26px;
+  display:flex;align-items:center;justify-content:center;
+  font-size:13px;font-weight:700
+}
+.s-live .s-ico{background:rgba(163,230,53,.16);color:var(--lime)}
+.s-dead .s-ico{background:rgba(244,63,94,.16);color:var(--err)}
+.s-name{font-size:14px;font-weight:550;flex:1}
+.s-cn{font-size:11.5px;color:var(--dim);margin-left:5px;font-weight:400}
+.s-bits{
+  font-family:ui-monospace,Menlo,monospace;font-size:10.5px;
+  letter-spacing:1.4px;padding:3px 8px;border-radius:6px
+}
+.s-live .s-bits{background:rgba(163,230,53,.12);color:var(--lime)}
+.s-dead .s-bits{background:rgba(244,63,94,.12);color:var(--err)}
+
+/* 键值行 */
+.kv{display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid rgba(30,41,59,.55);font-size:13.5px}
+.kv:last-child{border-bottom:none}
+.k{color:var(--dim);font-size:12.5px;flex:0 0 auto;margin-right:10px}
+.v{
+  font-family:ui-monospace,Menlo,monospace;font-size:12px;
+  text-align:right;word-break:break-all;
+  max-width:64%;color:var(--txt)
+}
+.v.g{color:var(--lime)} .v.r{color:var(--err)} .v.y{color:var(--warn)} .v.c{color:var(--ok)}
+
+/* 按钮 */
+.btns{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-top:13px}
+button{
+  padding:12px;border-radius:11px;border:1px solid var(--line);
+  background:var(--card2);color:var(--txt);font-size:13.5px;
+  font-weight:600;font-family:inherit;cursor:pointer;transition:.16s
+}
+button:active{transform:scale(.97);background:#1b2637}
+button.primary{
+  background:linear-gradient(135deg,rgba(34,211,238,.9),rgba(163,230,53,.82));
+  color:#06121a;border:none
+}
+button.full{grid-column:1/-1}
+
+.note{
+  font-size:11.5px;color:var(--dim);line-height:1.65;
+  padding:11px 13px;background:rgba(30,41,59,.35);border-radius:10px;
+  border-left:2.5px solid var(--ok);margin-top:11px
+}
+.note b{color:var(--ok);font-weight:600}
+footer{text-align:center;font-size:11px;color:#3f4d63;margin-top:20px;line-height:1.9}
+.err-tip{
+  background:rgba(244,63,94,.1);border:1px solid rgba(244,63,94,.28);
+  border-radius:11px;padding:12px 14px;font-size:12.5px;
+  color:#fda4b4;line-height:1.65;margin-bottom:12px;display:none
+}
+.spin{
+  display:inline-block;width:11px;height:11px;border:2px solid var(--dim);
+  border-top-color:var(--ok);border-radius:50%;
+  animation:sp .7s linear infinite;vertical-align:-1px;margin-right:5px
+}
+@keyframes sp{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="logo">📷</div>
+    <div>
+      <h1>CamFallback</h1>
+      <div class="sub" id="model">相机降级兼容 · MTK</div>
+    </div>
+  </header>
+
+  <div class="err-tip" id="errTip"></div>
+
+  <!-- 主状态 -->
+  <div class="hero">
+    <div class="hero-row">
+      <div>
+        <div class="bigdev" id="devCount">–</div>
+        <div class="hero-lbl">可用摄像头</div>
+      </div>
+      <div class="verdict v-warn" id="verdict">检测中</div>
+    </div>
+  </div>
+
+  <!-- Sensor 探测 -->
+  <div class="card">
+    <div class="card-title">
+      <span>Sensor 探测结果</span>
+      <span style="font-size:10px;letter-spacing:0;color:#4a5a72">S=通过 F=失败</span>
+    </div>
+    <div id="sensors"><div style="color:var(--dim);font-size:13px"><span class="spin"></span>读取中…</div></div>
+    <div class="note" id="probeNote" style="display:none"></div>
+  </div>
+
+  <!-- 运行状态 -->
+  <div class="card">
+    <div class="card-title"><span>运行状态</span></div>
+    <div class="kv"><span class="k">HAL 服务</span><span class="v" id="hal">–</span></div>
+    <div class="kv"><span class="k">崩溃次数</span><span class="v" id="crash">–</span></div>
+    <div class="kv"><span class="k">SELinux</span><span class="v" id="selinux">–</span></div>
+    <div class="kv"><span class="k">模块版本</span><span class="v c" id="ver">–</span></div>
+  </div>
+
+  <!-- 生效配置 -->
+  <div class="card">
+    <div class="card-title"><span>生效配置</span></div>
+    <div class="kv"><span class="k">module.info</span><span class="v" id="info">–</span></div>
+    <div class="kv"><span class="k">module.infoext</span><span class="v" id="infoext">–</span></div>
+    <div class="kv"><span class="k">enable_map</span><span class="v" id="emap">–</span></div>
+    <div class="kv"><span class="k">camera.config</span><span class="v" id="ccfg">–</span></div>
+  </div>
+
+  <!-- 操作 -->
+  <div class="card">
+    <div class="card-title"><span>操作</span></div>
+    <div class="btns">
+      <button class="primary full" id="btnRefresh">↻ 刷新状态</button>
+      <button id="btnRestart">重启相机服务</button>
+      <button id="btnCamera">打开相机</button>
+    </div>
+    <div class="note">
+      <b>原理</b>：MTK 相机 HAL 在任一 sensor 探测失败时会空指针崩溃
+      (<code>createDeviceMap</code> / <code>getSensorId</code>)，
+      导致所有摄像头不可用。本模块把失效的 sensor 从 HAL 设备表剔除，
+      让剩余完好的摄像头正常工作。
+    </div>
+  </div>
+
+  <footer>
+    CamFallback · by aplm123<br>
+    <span id="footInfo">Redmi K60 Ultra / MT6985</span>
+  </footer>
+</div>
+
+<script>
+const CN = {
+  front: '前置摄像头',
+  main:  '后置主摄',
+  ultra: '后置超广角',
+  macro: '微距',
+  tele:  '长焦'
+};
+const ORDER = ['main','ultra','tele','front','macro'];
+
+function $(id){ return document.getElementById(id); }
+
+function esc(s){
+  return String(s == null ? '' : s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;');
+}
+
+function parseProbe(str){
+  const out = [];
+  if (!str) return out;
+  const re = /<(front|main|ultra|macro|tele):([SF]*)>/g;
+  let m;
+  while ((m = re.exec(str)) !== null){
+    out.push({ name: m[1], bits: m[2] });
+  }
+  return out;
+}
+
+function renderSensors(probe){
+  const list = parseProbe(probe);
+  const box = $('sensors');
+
+  if (!list.length){
+    box.innerHTML = '<div style="color:var(--warn);font-size:13px">' +
+      '⚠ 尚无探测数据（相机服务可能未启动过）</div>';
+    return;
+  }
+
+  list.sort(function(a,b){
+    const ia = ORDER.indexOf(a.name), ib = ORDER.indexOf(b.name);
+    return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib);
+  });
+
+  let html = '';
+  list.forEach(function(s){
+    const dead = s.bits.indexOf('S') === -1;
+    html += '<div class="sensor ' + (dead ? 's-dead' : 's-live') + '">' +
+      '<div class="s-ico" style="background:rgba(' + (dead?'244,63,94':'163,230,53') + ',.16);' +
+      'color:' + (dead?'var(--err)':'var(--lime)') + '">' + (dead ? '✕' : '✓') + '</div>' +
+      '<div class="s-name">' + esc(CN[s.name] || s.name) +
+        '<span class="s-cn">' + esc(s.name) + '</span></div>' +
+      '<div class="s-bits">' + esc(s.bits || '-') + '</div>' +
+      '</div>';
+  });
+  box.innerHTML = html;
+
+  const dead = list.filter(function(s){ return s.bits.indexOf('S') === -1; });
+  const note = $('probeNote');
+  if (dead.length){
+    note.style.display = 'block';
+    note.innerHTML = '<b>已自动剔除失效 sensor</b>：' +
+      dead.map(function(s){ return (CN[s.name]||s.name); }).join('、') +
+      '。剩下能用的摄像头可以正常工作。';
+  } else {
+    note.style.display = 'none';
+  }
+}
+
+async function load(){
+  try{
+    const r = await fetch('status?t=' + Date.now(), { cache:'no-store' });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const d = await r.json();
+
+    // 设备数
+    const n = parseInt(d.devices, 10) || 0;
+    $('devCount').textContent = n;
+
+    // 判定
+    const v = $('verdict');
+    const halOk = d.hal === 'running';
+    if (n > 0 && halOk){
+      v.className = 'verdict v-ok';
+      v.textContent = '正常工作';
+    } else if (halOk){
+      v.className = 'verdict v-warn';
+      v.textContent = '无摄像头';
+    } else {
+      v.className = 'verdict v-err';
+      v.textContent = 'HAL 异常';
+    }
+
+    // sensor
+    renderSensors(d.probe);
+
+    // 运行状态
+    $('hal').textContent = d.hal || '–';
+    $('hal').className = 'v ' + (halOk ? 'g' : 'r');
+
+    const crash = parseInt(d.crash, 10) || 0;
+    $('crash').textContent = crash + ' 次';
+    $('crash').className = 'v ' + (crash === 0 ? 'g' : (crash < 5 ? 'y' : 'r'));
+
+    $('selinux').textContent = d.selinux || '–';
+    $('selinux').className = 'v ' + (d.selinux === 'Enforcing' ? 'g' : 'y');
+
+    $('ver').textContent = d.version || '–';
+
+    // 配置
+    $('info').textContent = d.info || '–';
+    $('infoext').textContent = d.infoext || '–';
+    $('emap').textContent = d.enable_map || '(默认)';
+    $('emap').className = 'v ' + (d.enable_map === '1' ? 'g' : 'y');
+
+    const cfg = d.camera_config;
+    $('ccfg').textContent = cfg + (cfg === '0' ? ' ✓' : '  ✗ 需为 0');
+    $('ccfg').className = 'v ' + (cfg === '0' ? 'g' : 'r');
+
+    if (d.model){
+      $('model').textContent = d.model + ' · 相机降级兼容';
+      $('footInfo').textContent = d.model + ' / MTK';
+    }
+    $('errTip').style.display = 'none';
+
+  } catch(e){
+    $('errTip').style.display = 'block';
+    $('errTip').textContent = '无法读取状态：' + e.message +
+      '  （请确认 WebUI 服务在运行，端口 8089）';
+    $('hal').textContent = '读取失败';
+    $('hal').className = 'v r';
+  }
+}
+
+$('btnRefresh').onclick = load;
+
+$('btnRestart').onclick = async function(){
+  if (!confirm('重启相机服务？\n正在使用的相机 App 会短暂中断。')) return;
+  const b = this;
+  b.disabled = true;
+  b.textContent = '重启中…';
+  try{
+    // 触发模块 action（通过 root 命令）
+    await fetch('cmd?do=restart&t=' + Date.now(), { cache:'no-store' });
+  } catch(e){}
+  setTimeout(function(){
+    b.disabled = false;
+    b.textContent = '重启相机服务';
+    load();
+  }, 9000);
+};
+
+$('btnCamera').onclick = async function(){
+  try{
+    await fetch('cmd?do=opencam&t=' + Date.now(), { cache:'no-store' });
+    setTimeout(load, 4000);
+  } catch(e){
+    alert('呼出失败：' + e.message);
+  }
+};
+
+// 首次加载 + 每 6 秒自动刷新
+load();
+setInterval(load, 6000);
+</script>
+</body>
+</html>
